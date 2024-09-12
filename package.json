@@ -1,0 +1,7 @@
+{
+  "dependencies": {
+    "express": "^4.19.2",
+    "react-data-table-component": "^7.6.2",
+    "xlsx": "^0.18.5"
+  }
+}

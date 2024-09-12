@@ -1,22 +1,30 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import * as XLSX from "xlsx"; // Import xlsx library
 
-const Record = (props) => (
+const Record = ({ record, handleCheckboxChange, isSelected }) => (
   <tr className="border-b transition-colors hover:bg-muted/50 data-[state=selected]:bg-muted">
     <td className="p-4 align-middle [&amp;:has([role=checkbox])]:pr-0">
-      {props.record.name}
+      <input
+        type="checkbox"
+        checked={isSelected}
+        onChange={() => handleCheckboxChange(record._id)}
+      />
     </td>
     <td className="p-4 align-middle [&amp;:has([role=checkbox])]:pr-0">
-      {props.record.position}
+      {record.name}
     </td>
     <td className="p-4 align-middle [&amp;:has([role=checkbox])]:pr-0">
-      {props.record.level}
+      {record.position}
+    </td>
+    <td className="p-4 align-middle [&amp;:has([role=checkbox])]:pr-0">
+      {record.level}
     </td>
     <td className="p-4 align-middle [&amp;:has([role=checkbox])]:pr-0">
       <div className="flex gap-2">
         <Link
           className="inline-flex items-center justify-center whitespace-nowrap text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 border border-input bg-background hover:bg-slate-100 h-9 rounded-md px-3"
-          to={`/edit/${props.record._id}`}
+          to={`/edit/${record._id}`}
         >
           Edit
         </Link>
@@ -24,9 +32,7 @@ const Record = (props) => (
           className="inline-flex items-center justify-center whitespace-nowrap text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 border border-input bg-background hover:bg-slate-100 hover:text-accent-foreground h-9 rounded-md px-3"
           color="red"
           type="button"
-          onClick={() => {
-            props.deleteRecord(props.record._id);
-          }}
+          onClick={() => handleCheckboxChange(record._id)}
         >
           Delete
         </button>
@@ -37,11 +43,16 @@ const Record = (props) => (
 
 export default function RecordList() {
   const [records, setRecords] = useState([]);
+  const [selectedRecords, setSelectedRecords] = useState([]);
+  const [selectAll, setSelectAll] = useState(false);
+  const [selectedFilters, setSelectedFilters] = useState([]);
+  const [excelData, setExcelData] = useState([]); // State to store Excel data
+  const [previewData, setPreviewData] = useState([]); // State to store preview data
+  const [searchQuery, setSearchQuery] = useState(""); // State for search query
 
-  // This method fetches the records from the database.
   useEffect(() => {
     async function getRecords() {
-      const response = await fetch(`http://localhost:5050/record/`);
+      const response = await fetch("http://localhost:5050/record/");
       if (!response.ok) {
         const message = `An error occurred: ${response.statusText}`;
         console.error(message);
@@ -51,40 +62,179 @@ export default function RecordList() {
       setRecords(records);
     }
     getRecords();
-    return;
-  }, [records.length]);
+  }, []);
 
-  // This method will delete a record
-  async function deleteRecord(id) {
-    await fetch(`http://localhost:5050/record/${id}`, {
-      method: "DELETE",
-    });
-    const newRecords = records.filter((el) => el._id !== id);
+  const handleCheckboxChange = (id) => {
+    if (selectedRecords.includes(id)) {
+      setSelectedRecords(selectedRecords.filter((recordId) => recordId !== id));
+    } else {
+      setSelectedRecords([...selectedRecords, id]);
+    }
+  };
+
+  const handleSelectAllChange = () => {
+    if (selectAll) {
+      setSelectedRecords([]);
+    } else {
+      setSelectedRecords(records.map((record) => record._id));
+    }
+    setSelectAll(!selectAll);
+  };
+
+  const handleFilterChange = (level) => {
+    if (selectedFilters.includes(level)) {
+      setSelectedFilters(selectedFilters.filter((filter) => filter !== level));
+    } else {
+      setSelectedFilters([...selectedFilters, level]);
+    }
+  };
+
+  async function deleteSelectedRecords() {
+    for (let id of selectedRecords) {
+      await fetch(`http://localhost:5050/record/${id}`, {
+        method: "DELETE",
+      });
+    }
+    const newRecords = records.filter((record) => !selectedRecords.includes(record._id));
     setRecords(newRecords);
+    setSelectedRecords([]);
+    setSelectAll(false);
   }
 
-  // This method will map out the records on the table
-  function recordList() {
-    return records.map((record) => {
-      return (
-        <Record
-          record={record}
-          deleteRecord={() => deleteRecord(record._id)}
-          key={record._id}
-        />
-      );
-    });
-  }
+  const handleFileUpload = (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
 
-  // This following section will display the table with the records of individuals.
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const data = new Uint8Array(e.target.result);
+      const workbook = XLSX.read(data, { type: "array" });
+      const sheetName = workbook.SheetNames[0];
+      const sheet = workbook.Sheets[sheetName];
+      const jsonData = XLSX.utils.sheet_to_json(sheet);
+      setExcelData(jsonData);
+      setPreviewData(jsonData.slice(0, 10)); // Preview first 10 rows
+    };
+    reader.readAsArrayBuffer(file);
+  };
+
+  const handleConfirmUpload = async () => {
+    // Insert the records to the backend API
+    for (let record of excelData) {
+      await fetch("http://localhost:5050/record/add", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(record),
+      });
+    }
+    setExcelData([]); // Clear after upload
+    setPreviewData([]); // Clear preview after upload
+    await getRecords(); // Refresh the records after insertion
+  };
+
+  const filteredRecords = () => {
+    const recordsAfterFilter = selectedFilters.length
+      ? records.filter((record) => selectedFilters.includes(record.level))
+      : records;
+
+    return recordsAfterFilter.filter((record) =>
+      record.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      record.position.toLowerCase().includes(searchQuery.toLowerCase())
+    );
+  };
+
   return (
     <>
       <h3 className="text-lg font-semibold p-4">Employee Records</h3>
+
+      {/* Search Box */}
+      <div className="p-4">
+        <input
+          type="text"
+          placeholder="Search by name or position"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          className="border border-gray-300 rounded-md p-2 w-full"
+        />
+      </div>
+
+      {/* Upload Button for Excel File */}
+      <div className="p-4">
+        <h4 className="block text-sm font-medium leading-6 text-slate-900 mb-2">
+          Upload Excel File
+        </h4>
+        <input type="file" accept=".xlsx, .xls" onChange={handleFileUpload} />
+      </div>
+
+      {/* Preview of Excel Data */}
+      {previewData.length > 0 && (
+        <div className="p-4">
+          <h4 className="block text-sm font-medium leading-6 text-slate-900 mb-2">
+            Preview Data (First 10 Rows)
+          </h4>
+          <table className="w-full border-collapse border border-gray-400">
+            <thead>
+              <tr>
+                {Object.keys(previewData[0]).map((key) => (
+                  <th key={key} className="border border-gray-400 p-2">
+                    {key}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {previewData.map((row, index) => (
+                <tr key={index}>
+                  {Object.values(row).map((value, i) => (
+                    <td key={i} className="border border-gray-400 p-2">
+                      {value}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <button
+            onClick={handleConfirmUpload}
+            className="mt-4 px-4 py-2 bg-green-500 text-white rounded"
+          >
+            Confirm Upload
+          </button>
+        </div>
+      )}
+
+      {/* Filter Checkboxes */}
+      <div className="p-4">
+        <h4 className="block text-sm font-medium leading-6 text-slate-900 mb-2">Filter by Level</h4>
+        <div className="flex gap-4">
+          {["Intern", "Junior", "Senior"].map((level) => (
+            <label key={level} className="flex items-center">
+              <input
+                type="checkbox"
+                checked={selectedFilters.includes(level)}
+                onChange={() => handleFilterChange(level)}
+                className="mr-2"
+              />
+              {level}
+            </label>
+          ))}
+        </div>
+      </div>
+
       <div className="border rounded-lg overflow-hidden">
         <div className="relative w-full overflow-auto">
           <table className="w-full caption-bottom text-sm">
             <thead className="[&amp;_tr]:border-b">
               <tr className="border-b transition-colors hover:bg-muted/50 data-[state=selected]:bg-muted">
+                <th className="h-12 px-4 text-left align-middle font-medium text-muted-foreground [&amp;:has([role=checkbox])]:pr-0">
+                  <input
+                    type="checkbox"
+                    checked={selectAll}
+                    onChange={handleSelectAllChange}
+                  />
+                </th>
                 <th className="h-12 px-4 text-left align-middle font-medium text-muted-foreground [&amp;:has([role=checkbox])]:pr-0">
                   Name
                 </th>
@@ -100,9 +250,24 @@ export default function RecordList() {
               </tr>
             </thead>
             <tbody className="[&amp;_tr:last-child]:border-0">
-              {recordList()}
+              {filteredRecords().map((record) => (
+                <Record
+                  record={record}
+                  isSelected={selectedRecords.includes(record._id)}
+                  handleCheckboxChange={handleCheckboxChange}
+                  key={record._id}
+                />
+              ))}
             </tbody>
           </table>
+        </div>
+        <div className="p-4">
+          <button
+            onClick={deleteSelectedRecords}
+            className="inline-flex items-center justify-center whitespace-nowrap text-md font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 border border-input bg-background hover:bg-slate-100 hover:text-accent-foreground h-9 rounded-md px-3 cursor-pointer mt-4"
+          >
+            Delete Selected
+          </button>
         </div>
       </div>
     </>
