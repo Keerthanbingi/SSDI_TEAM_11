@@ -46,24 +46,24 @@ export default function RecordList() {
   const [selectedRecords, setSelectedRecords] = useState([]);
   const [selectAll, setSelectAll] = useState(false);
   const [selectedFilters, setSelectedFilters] = useState([]);
+  const [searchQuery, setSearchQuery] = useState(""); // State for search query
   const [excelData, setExcelData] = useState([]); // State to store Excel data
   const [previewData, setPreviewData] = useState([]); // State to store preview data
-  const [searchQuery, setSearchQuery] = useState(""); // State for search query
+
+  const getRecords = async () => {
+    const response = await fetch("http://localhost:5050/record/");
+    if (!response.ok) {
+      const message = `An error occurred: ${response.statusText}`;
+      console.error(message);
+      return;
+    }
+    const records = await response.json();
+    setRecords(records);
+  };
 
   useEffect(() => {
-    async function getRecords() {
-      const response = await fetch("http://localhost:5050/record/");
-      if (!response.ok) {
-        const message = `An error occurred: ${response.statusText}`;
-        console.error(message);
-        return;
-      }
-      const records = await response.json();
-      setRecords(records);
-    }
     getRecords();
   }, []);
-
   const handleCheckboxChange = (id) => {
     if (selectedRecords.includes(id)) {
       setSelectedRecords(selectedRecords.filter((recordId) => recordId !== id));
@@ -101,6 +101,7 @@ export default function RecordList() {
     setSelectAll(false);
   }
 
+
   const handleFileUpload = (event) => {
     const file = event.target.files[0];
     if (!file) return;
@@ -119,9 +120,8 @@ export default function RecordList() {
   };
 
   const handleConfirmUpload = async () => {
-    // Insert the records to the backend API
     for (let record of excelData) {
-      await fetch("http://localhost:5050/record/add", {
+      await fetch("http://localhost:5050/record/", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -129,9 +129,9 @@ export default function RecordList() {
         body: JSON.stringify(record),
       });
     }
-    setExcelData([]); // Clear after upload
-    setPreviewData([]); // Clear preview after upload
-    await getRecords(); // Refresh the records after insertion
+    setExcelData([]);
+    setPreviewData([]);
+    getRecords(); // Refresh the records after insertion
   };
 
   const filteredRecords = () => {
